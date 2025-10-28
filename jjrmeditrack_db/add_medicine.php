@@ -1,12 +1,12 @@
 <?php
 session_start();
-// Security Check
+
 if (!isset($_SESSION['userID']) || $_SESSION['role'] != 'staff') {
     header("Location: login.html");
     exit();
 }
 
-// Database Connection
+
 $conn = mysqli_connect("localhost", "root", "", "jjrmeditrack_db");
 if (!$conn) {
     die("Connection failed: " . mysqli_connect_error());
@@ -14,10 +14,10 @@ if (!$conn) {
 
 $message = ''; 
 
-// --- ADD MEDICINE LOGIC ---
+
 if (isset($_POST['submit_medicine'])) {
     
-    // 1. Collect and sanitize input
+
     $name = mysqli_real_escape_string($conn, $_POST['medicine_name']);
     $manufacture = mysqli_real_escape_string($conn, $_POST['manufacture']); 
     $description = mysqli_real_escape_string($conn, $_POST['description']); 
@@ -26,9 +26,9 @@ if (isset($_POST['submit_medicine'])) {
     $quantity = intval($_POST['quantity']);
     $expiry = mysqli_real_escape_string($conn, $_POST['expiry_date']);
     $category = mysqli_real_escape_string($conn, $_POST['category']); 
-    $image_path = 'placeholder.jpg'; // Default image
+    $image_path = 'placeholder.jpg';
 
-    // 2. Handle Image Upload (Same logic as before)
+
     if (isset($_FILES['image']) && $_FILES['image']['error'] == 0) {
         $target_dir = "uploads/medicine_images/";
         if (!is_dir($target_dir)) {
@@ -55,16 +55,13 @@ if (isset($_POST['submit_medicine'])) {
         $message = '<div class="alert error">Please fill in all required fields correctly.</div>';
     } elseif (strpos($message, 'Error') === false) {
         
-        // 4. Prepared statement for secure insertion (FIXED BIND PARAMETERS)
-        // Fields: name, manufacture, description, milligram, price, stockquantity, expiredate, category, image_path
+ 
         $stmt = $conn->prepare("INSERT INTO medicines (name, manufacture, description, milligram, price, stockquantity, expiredate, category, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        
-        // Corrected bind string for 9 parameters: s s s i d i s s s
-        // (name, manufacture, description, milligram, price, quantity, expiry, category, image_path)
+
         $stmt->bind_param("sssidisss", $name, $manufacture, $description, $milligram, $price, $quantity, $expiry, $category, $image_path);
 
         if ($stmt->execute()) {
-            // SUCCESS: REDIRECT TO MEDICINE LIST PAGE
+  
             header("Location: medicine_list.php?status=added&name=" . urlencode($name));
             exit();
         } else {
@@ -253,5 +250,6 @@ input[type=submit]:hover { background: #2f7d38; }
 
 </body>
 </html>
+
 
 <?php $conn->close(); ?>
