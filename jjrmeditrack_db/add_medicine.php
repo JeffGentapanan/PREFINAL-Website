@@ -16,8 +16,6 @@ $message = '';
 
 
 if (isset($_POST['submit_medicine'])) {
-    
-
     $name = mysqli_real_escape_string($conn, $_POST['medicine_name']);
     $manufacture = mysqli_real_escape_string($conn, $_POST['manufacture']); 
     $description = mysqli_real_escape_string($conn, $_POST['description']); 
@@ -253,3 +251,4 @@ input[type=submit]:hover { background: #2f7d38; }
 
 
 <?php $conn->close(); ?>
+
