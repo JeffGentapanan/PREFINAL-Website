@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Login - JJR MediTrack</title>
+  <style >
+    body { font-family: Arial; background:#eafbea; }
+    .login-box { width:360px; margin:80px auto; background:white; padding:22px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.08);}
+    input, button { width:90%; padding:10px; margin:8px 0; border-radius:8px; border:1px solid #cfead8; }
+    button { background:#3e9b4a; color:white; border:none; }
+  </style>
+</head>
+<body Align='Center'>
+  <div class="login-box">
+    <h2>JJR MediTrack Login</h2>
+    <form method="POST" action="login.php">
+      <input type="email" name="email" placeholder="Email" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <button type="submit" >Login</button>
+    </form>
+    <p style="font-size:13px">No account? <a href="register.html">Register</a></p>
+  </div>
+</body>
+</html>
