@@ -72,30 +72,6 @@ if (isset($_POST['submit_medicine'])) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -251,4 +227,5 @@ input[type=submit]:hover { background: #2f7d38; }
 
 
 <?php $conn->close(); ?>
+
 
