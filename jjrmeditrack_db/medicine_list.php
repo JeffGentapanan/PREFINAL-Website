@@ -16,36 +16,91 @@ if (!$conn) {
 // --- Handle INLINE UPDATE MEDICINE LOGIC (AJAX POST) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update_inline') {
     $response = ['status' => 'error', 'message' => 'An unknown error occurred.'];
-    
+
     // Sanitize and validate inputs
     $id = filter_var($_POST['medicineID'] ?? 0, FILTER_SANITIZE_NUMBER_INT);
     $name = trim($_POST['name'] ?? '');
     $manufacture = trim($_POST['manufacture'] ?? '');
     $stockquantity = filter_var($_POST['stockquantity'] ?? 0, FILTER_SANITIZE_NUMBER_INT);
-    $price = filter_var($_POST['price'] ?? 0.00, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION);
+    // Ensure decimal dot handled
+    $price_raw = str_replace(',', '', $_POST['price'] ?? '0');
+    $price = filter_var($price_raw, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION);
 
     // Basic input validation
     if (empty($name) || empty($manufacture) || $stockquantity < 0 || $price < 0 || $id <= 0) {
         $response['message'] = 'Invalid input. Please check all fields and ensure Name/Manufacturer are not empty.';
     } else {
         // Use prepared statement to safely update the database
-        $stmt = $conn->prepare("UPDATE medicines SET name = ?, manufacture = ?, stockquantity = ?, price = ? WHERE medicineID = ?");
-        $stmt->bind_param("ssidi", $name, $manufacture, $stockquantity, $price, $id);
-        
-        if ($stmt->execute()) {
-            $response['status'] = 'success';
-            $response['message'] = 'Medicine **' . htmlspecialchars($name) . '** updated successfully!';
+        $stmt_upd = $conn->prepare("UPDATE medicines SET name = ?, manufacture = ?, stockquantity = ?, price = ? WHERE medicineID = ?");
+        if ($stmt_upd) {
+            $stmt_upd->bind_param("ssidi", $name, $manufacture, $stockquantity, $price, $id);
+
+            if ($stmt_upd->execute()) {
+                $response['status'] = 'success';
+                $response['message'] = 'Medicine **' . htmlspecialchars($name) . '** updated successfully!';
+            } else {
+                $response['message'] = 'Database error: ' . $stmt_upd->error;
+            }
+            $stmt_upd->close();
         } else {
-            $response['message'] = 'Database error: ' . $stmt->error;
+            $response['message'] = 'Database prepare error: ' . $conn->error;
         }
-        $stmt->close();
     }
-    
+
     header('Content-Type: application/json');
     echo json_encode($response);
     $conn->close();
     exit(); // Terminate script after sending JSON response
 }
+// --------------------------------------------------------
+
+// --- Handle DEACTIVATE MEDICINE LOGIC (AJAX POST) ---
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'delete_medicine') {
+    $response = ['status' => 'error', 'message' => 'Invalid request.'];
+
+    $id = intval($_POST['medicineID'] ?? 0);
+
+    if ($id > 0) {
+        // Fetch image before inactivating (optional)
+        $stmt_sel = $conn->prepare("SELECT image_path FROM medicines WHERE medicineID = ?");
+        if ($stmt_sel) {
+            $stmt_sel->bind_param("i", $id);
+            $stmt_sel->execute();
+            $res_sel = $stmt_sel->get_result();
+            $path_to_delete = '';
+            if ($res_sel && $res_sel->num_rows > 0) {
+                $path_to_delete = $res_sel->fetch_assoc()['image_path'];
+            }
+            $stmt_sel->close();
+        }
+
+        // Mark as inactive instead of deleting
+        $stmt = $conn->prepare("UPDATE medicines SET status = 'inactive' WHERE medicineID = ?");
+        if ($stmt) {
+            $stmt->bind_param("i", $id);
+            if ($stmt->execute()) {
+                $response['status'] = 'success';
+                $response['message'] = 'Medicine successfully marked as inactive.';
+                // Optionally delete image file:
+                // if (!empty($path_to_delete) && $path_to_delete != 'placeholder.jpg' && file_exists($path_to_delete)) {
+                //     unlink($path_to_delete);
+                // }
+            } else {
+                $response['message'] = 'Database error while updating status.';
+            }
+            $stmt->close();
+        } else {
+            $response['message'] = 'Database prepare error: ' . $conn->error;
+        }
+    } else {
+        $response['message'] = 'Invalid medicine ID.';
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($response);
+    exit();
+}
+
 // --------------------------------------------------------
 
 $message = '';
@@ -55,34 +110,6 @@ if (isset($_GET['status']) && $_GET['status'] == 'added' && isset($_GET['name'])
     $message = '<div class="alert success">Medicine **' . htmlspecialchars($_GET['name']) . '** added to inventory successfully!</div>';
 }
 
-// --- Handle DELETE MEDICINE LOGIC ---
-if (isset($_GET['delete'])) {
-    $id = intval($_GET['delete']);
-    
-    // 1. Get image path before deleting the record
-    $img_result = $conn->query("SELECT image_path FROM medicines WHERE medicineID = $id");
-    if ($img_result && $img_result->num_rows > 0) {
-        $img_row = $img_result->fetch_assoc();
-        $path_to_delete = $img_row['image_path'];
-    }
-
-    // 2. Delete record
-    $stmt = $conn->prepare("DELETE FROM medicines WHERE medicineID = ?");
-    $stmt->bind_param("i", $id);
-    if ($stmt->execute()) {
-        $message = '<div class="alert success">Medicine deleted successfully!</div>';
-        // 3. Attempt to delete the file from the server, but skip default image
-        if (isset($path_to_delete) && $path_to_delete != 'placeholder.jpg' && file_exists($path_to_delete)) {
-            // unlink($path_to_delete); 
-        }
-    } else {
-        $message = '<div class="alert error">Error deleting medicine.</div>';
-    }
-    $stmt->close();
-    header("Location: medicine_list.php");
-    exit();
-}
-
 // --- SEARCH & FILTER LOGIC (UPDATED TO USE manufacture) ---
 $search = $_GET['search'] ?? '';
 $category = $_GET['category'] ?? 'All';
@@ -90,6 +117,9 @@ $category = $_GET['category'] ?? 'All';
 $whereClauses = [];
 $queryParams = [];
 $queryTypes = '';
+
+// Always show only active items in main list
+$whereClauses[] = "status = 'active'";
 
 if ($category != 'All' && !empty($category)) {
     $whereClauses[] = "category = ?";
@@ -111,9 +141,12 @@ $whereSQL = count($whereClauses) > 0 ? "WHERE " . implode(' AND ', $whereClauses
 $sql = "SELECT medicineID, name, manufacture, stockquantity, price, image_path FROM medicines {$whereSQL} ORDER BY name ASC";
 
 $stmt = $conn->prepare($sql);
+if ($stmt === false) {
+    die("Prepare failed: " . $conn->error);
+}
 
 if (!empty($queryTypes)) {
-    // Dynamically call bind_param 
+    // Dynamically call bind_param
     $stmt->bind_param($queryTypes, ...$queryParams);
 }
 
@@ -139,6 +172,7 @@ $totalAll = $conn->query("SELECT COUNT(*) AS total FROM medicines")->fetch_assoc
 <title>Medicine Inventory</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+/* (Your original CSS preserved) */
 body { font-family: 'Inter', sans-serif; margin: 0; background: #f6fff6; color: #222; padding-bottom: 70px; /* Space for fixed nav */ }
 
 /* Header & Back Button Styles */
@@ -203,199 +237,55 @@ header {
 .category-nav a.active { border-bottom: 3px solid #0f8e33; color: #0f8e33; }
 .category-nav a:hover:not(.active) { color: #3e9b4a; }
 
-/* Category Cards */
 .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 30px; }
-@media (min-width: 768px) {
-    .card-grid { grid-template-columns: repeat(4, 1fr); }
-}
+@media (min-width: 768px) { .card-grid { grid-template-columns: repeat(4, 1fr); } }
 
-.cat-card {
-    background: #fff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 15px;
-    display: flex;
-    align-items: center;
-    text-align: left;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    text-decoration: none;
-    color: inherit;
-    transition: transform 0.1s, box-shadow 0.1s;
-}
+.cat-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; display: flex; align-items: center; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-decoration: none; color: inherit; transition: transform 0.1s, box-shadow 0.1s; }
 .cat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-.card-image-icon {
-    width: 50px;
-    height: 50px;
-    background: #d4f7d4; /* Lighter background */
-    border-radius: 8px; /* Rounded corners */
-    margin-right: 15px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #0f8e33;
-    font-size: 22px; 
-}
+.card-image-icon { width: 50px; height: 50px; background: #d4f7d4; border-radius: 8px; margin-right: 15px; display: flex; align-items: center; justify-content: center; color: #0f8e33; font-size: 22px; }
 .card-info { font-size: 16px; color: #000; font-weight: bold; }
 .card-info small { display: block; font-size: 14px; color: #555; font-weight: normal; }
 
-/* Medicine Table */
 .table-controls { display: flex; justify-content: flex-end; margin-bottom: 15px; }
-.add-btn { 
-    padding: 8px 15px; 
-    background: #d4f7d4; 
-    color: #0f8e33; 
-    text-decoration: none; 
-    border-radius: 20px; 
-    font-weight: 600;
-    border: 1px solid #0f8e33;
-    display: inline-flex;
-    align-items: center;
-    transition: background 0.2s;
-}
+.add-btn { padding: 8px 15px; background: #d4f7d4; color: #0f8e33; text-decoration: none; border-radius: 20px; font-weight: 600; border: 1px solid #0f8e33; display: inline-flex; align-items: center; transition: background 0.2s; }
 .add-btn:hover { background: #c3e6c3; }
 
 table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 10px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
-table th, table td { 
-    padding: 12px 10px; 
-    text-align: left;
-    font-size: 14px;
-    border-bottom: 1px solid #a8d9a8;
-}
-table th { 
-    background: #3e9b4a; 
-    color: white; 
-    font-weight: 700;
-    border-bottom: 2px solid #2f7d38;
-}
-/* Rounded corners for headers */
+table th, table td { padding: 12px 10px; text-align: left; font-size: 14px; border-bottom: 1px solid #a8d9a8; }
+table th { background: #3e9b4a; color: white; font-weight: 700; border-bottom: 2px solid #2f7d38; }
 table th:first-child { border-top-left-radius: 8px; }
 table th:last-child { border-top-right-radius: 8px; }
-
 table tr:nth-child(even) { background-color: #f0fff0; }
-table tr:last-child td { border-bottom: none; } /* Remove bottom border from last row */
+table tr:last-child td { border-bottom: none; }
 
-.medicine-img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; display: block; margin: 0 auto; } /* Centered image */
+.medicine-img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; display: block; margin: 0 auto; }
 
-/* Inline Editing Styles */
-td[contenteditable="true"] {
-    background-color: #ffffe0;
-    outline: 2px solid #47d16b;
-    border-radius: 4px;
-    cursor: text;
-    transition: background-color 0.2s;
-}
-.actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    white-space: nowrap;
-}
-.actions button {
-    text-decoration: none; 
-    font-weight: 600; 
-    padding: 6px 10px; 
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-    border: none;
-    transition: background 0.2s, color 0.2s;
-}
-.actions button.edit-btn {
-    background: #e6e6e6; 
-    color: #444; 
-}
-.actions button.edit-btn:hover {
-    background: #d4d4d4;
-}
+td[contenteditable="true"] { background-color: #ffffe0; outline: 2px solid #47d16b; border-radius: 4px; cursor: text; transition: background-color 0.2s; }
+.actions { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+.actions button { text-decoration: none; font-weight: 600; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; border: none; transition: background 0.2s, color 0.2s; }
+.actions button.edit-btn { background: #e6e6e6; color: #444; }
+.actions button.edit-btn:hover { background: #d4d4d4; }
+.actions button.save-btn { background: #0f8e33; color: white; }
+.actions button.save-btn:hover { background: #0b6b27; }
+.actions button.delete-btn { background: #d42d2d; color: white; }
+.actions button.delete-btn:hover { background: #b41f1f; }
 
-.actions button.save-btn {
-    background: #0f8e33; 
-    color: white; 
-}
-.actions button.save-btn:hover {
-    background: #0b6b27;
-}
-.actions button.delete-btn { /* Style for the new delete button (open modal) */
-    background: #d42d2d;
-    color: white;
-}
-.actions button.delete-btn:hover { 
-    background: #b41f1f;
-}
+#statusMessage { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 1000; width: 90%; max-width: 500px; pointer-events: none; }
 
-/* Status message box */
-#statusMessage {
-    position: fixed;
-    top: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 1000;
-    width: 90%;
-    max-width: 500px;
-    pointer-events: none; /* Allows clicks to pass through */
-}
-
-/* Alert Styles */
 .alert { padding: 10px; margin-bottom: 0; border-radius: 8px; font-weight: bold; }
 .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
 .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
-/* Modal Styles */
-.modal {
-    display: none; /* Hidden by default */
-    position: fixed;
-    z-index: 2000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-    background-color: rgba(0,0,0,0.5); /* Black w/ opacity */
-    padding-top: 50px;
-}
-.modal-content {
-    background-color: #fefefe;
-    margin: 10% auto; /* 10% from the top and centered */
-    padding: 25px;
-    border: 1px solid #ccc;
-    width: 90%;
-    max-width: 400px;
-    border-radius: 12px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    text-align: center;
-}
-.modal-content h3 {
-    color: #d42d2d;
-    margin-top: 0;
-}
-.modal-actions {
-    margin-top: 20px;
-    display: flex;
-    justify-content: space-around;
-    gap: 10px;
-}
-.modal-actions button, .modal-actions a {
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-weight: bold;
-    cursor: pointer;
-    text-decoration: none;
-    transition: background 0.2s;
-    border: none;
-}
-.modal-cancel-btn {
-    background: #e6e6e6;
-    color: #222;
-}
-.modal-confirm-btn {
-    background: #d42d2d;
-    color: white;
-}
+.modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); padding-top: 50px; }
+.modal-content { background-color: #fefefe; margin: 10% auto; padding: 25px; border: 1px solid #ccc; width: 90%; max-width: 400px; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: center; }
+.modal-content h3 { color: #d42d2d; margin-top: 0; }
+.modal-actions { margin-top: 20px; display: flex; justify-content: space-around; gap: 10px; }
+.modal-actions button, .modal-actions a { padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; text-decoration: none; transition: background 0.2s; border: none; }
+.modal-cancel-btn { background: #e6e6e6; color: #222; }
+.modal-confirm-btn { background: #d42d2d; color: white; }
 .modal-cancel-btn:hover { background: #d4d4d4; }
 .modal-confirm-btn:hover { background: #b41f1f; }
 
-
-/* Bottom Nav (Matches dashboard) */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#47d16b;display:flex;justify-content:space-around;padding:10px 0;box-shadow: 0 -2px 5px rgba(0,0,0,0.1);}
 .bottom-nav a{color:white;text-decoration:none;font-size:14px;text-align:center;padding:5px 0; flex-grow: 1;}
 .bottom-nav a:hover{background-color: #3e9b4a;}
@@ -481,7 +371,7 @@ td[contenteditable="true"] {
             </tr>
         </thead>
         <tbody>
-            <?php if ($result->num_rows > 0): ?>
+            <?php if ($result && $result->num_rows > 0): ?>
                 <?php while($row = $result->fetch_assoc()): ?>
                 <tr data-id="<?= $row['medicineID'] ?>">
                     <td style="text-align: center;">
@@ -523,12 +413,11 @@ td[contenteditable="true"] {
 <!-- Custom Delete Confirmation Modal -->
 <div id="deleteModal" class="modal">
     <div class="modal-content">
-        <h3>Confirm Deletion</h3>
-        <p id="modal-text">Are you sure you want to permanently delete this medicine from the inventory?</p>
+        <h3>Confirm Action</h3>
+        <p id="modal-text">Are you sure you want to mark this medicine as inactive?</p>
         <div class="modal-actions">
             <button id="cancelDelete" class="modal-cancel-btn">Cancel</button>
-            <!-- This href will be set dynamically via JS -->
-            <a id="confirmDelete" href="#" class="modal-confirm-btn">Delete</a>
+            <button id="confirmDelete" class="modal-confirm-btn">Continue</button>
         </div>
     </div>
 </div>
@@ -559,30 +448,63 @@ const deleteModal = document.getElementById('deleteModal');
 const confirmDeleteBtn = document.getElementById('confirmDelete');
 const cancelDeleteBtn = document.getElementById('cancelDelete');
 
-/**
- * Opens the custom delete confirmation modal.
- * @param {number} id - The medicineID of the item to delete.
- * @param {string} name - The name of the medicine (for display).
- */
+let deletingId = null;
+
 function openDeleteModal(id, name) {
     const p = deleteModal.querySelector('#modal-text');
     // Sanitize the name before injecting into HTML
     const safeName = new DOMParser().parseFromString(name, 'text/html').body.textContent;
-    p.innerHTML = `Are you sure you want to permanently delete **${safeName}** from the inventory?`;
-    confirmDeleteBtn.href = `medicine_list.php?delete=${id}`;
+    p.innerHTML = `Are you sure you want to mark <strong>${safeName}</strong> as inactive? This will hide it from the active list but keep historical records intact.`;
+    deletingId = id;
     deleteModal.style.display = 'block';
 }
 
 cancelDeleteBtn.onclick = function() {
+    deletingId = null;
     deleteModal.style.display = 'none';
 }
 
 // Close the modal if the user clicks anywhere outside of it
 window.onclick = function(event) {
     if (event.target == deleteModal) {
+        deletingId = null;
         deleteModal.style.display = 'none';
     }
 }
+
+// Confirm button triggers AJAX to mark inactive
+confirmDeleteBtn.onclick = async function() {
+    if (!deletingId) return;
+    deleteModal.style.display = 'none';
+
+    try {
+        const formData = new FormData();
+        formData.append('action', 'delete_medicine');
+        formData.append('medicineID', deletingId);
+
+        const resp = await fetch(window.location.href, {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'success') {
+            // Remove row visually
+            const row = document.querySelector(`tr[data-id="${deletingId}"]`);
+            if (row) row.remove();
+
+            showStatus(data.message, 'success');
+        } else {
+            showStatus(data.message || 'Could not mark as inactive.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        showStatus('Network error while marking inactive.', 'error');
+    } finally {
+        deletingId = null;
+    }
+};
 // --- End Delete Modal Functions ---
 
 
@@ -712,11 +634,12 @@ async function saveInlineEdit(id, button) {
     if (!isValid) return;
 
     // Visually disable the save button during submission
+    const originalBtnText = button.textContent;
     button.textContent = 'Saving...';
     button.disabled = true;
 
     try {
-        const response = await fetch('medicine_list.php', {
+        const response = await fetch(window.location.href, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -737,8 +660,12 @@ async function saveInlineEdit(id, button) {
                     // Update display and stored data
                     const numericValue = parseFloat(data.price).toFixed(2);
                     const span = cell.querySelector('span[data-value]');
-                    span.dataset.value = numericValue;
-                    span.textContent = numericValue;
+                    if (span) {
+                        span.dataset.value = numericValue;
+                        span.textContent = numericValue;
+                    } else {
+                        cell.innerHTML = `₱ <span data-value="${numericValue}">${numericValue}</span>`;
+                    }
                     cell.dataset.originalValue = numericValue;
                     // Ensure '₱ ' prefix is present
                     cell.childNodes.forEach(node => {
@@ -767,7 +694,7 @@ async function saveInlineEdit(id, button) {
         editButton.textContent = '❌ Cancel';
     } finally {
         // Re-enable and reset the save button
-        button.textContent = '💾 Save';
+        button.textContent = originalBtnText;
         button.disabled = false;
     }
 }
@@ -776,4 +703,10 @@ async function saveInlineEdit(id, button) {
 </body>
 </html>
 
-<?php $stmt->close(); $conn->close(); ?>
+<?php
+// Clean up: close statement and connection if present
+if (isset($stmt) && $stmt instanceof mysqli_stmt) {
+    $stmt->close();
+}
+$conn->close();
+?>
