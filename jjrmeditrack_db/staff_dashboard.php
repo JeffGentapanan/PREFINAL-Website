@@ -41,7 +41,7 @@ $low_stock_count = $low_stock_query->num_rows;
 
 // Expiring Soon Medicines (within 30 days and active)
 $expiring_query = $conn->query("
-    SELECT name, expiredate
+    SELECT medicineID, name, expiredate
     FROM medicines
     WHERE expiredate <= DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
       AND status = 'active'
@@ -141,7 +141,7 @@ $conn->close();
                             <tr>
                                 <td><?= htmlspecialchars($row['name']) ?></td>
                                 <td><?= date("m/d/Y", strtotime($row['expiredate'])) ?></td>
-                                <td><a href="delete_medicine.php?id=<?= urlencode($row['name']) ?>" class="delete">Delete</a></td>
+                                <td><a href="delete_medicine.php?id=<?= urlencode($row['medicineID']) ?>" class="delete" onclick="return confirm('Are you sure you want to remove this medicine?')">Delete</a></td>
                             </tr>
                         <?php endwhile; ?>
                     <?php else: ?>
