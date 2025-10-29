@@ -29,20 +29,22 @@ $total_transactions = $conn->query("
     FROM sale
 ")->fetch_assoc()['total_txn'] ?? 0;
 
-// Low Stock Medicines (<=10)
+// Low Stock Medicines (<=10 and active)
 $low_stock_query = $conn->query("
     SELECT name, stockquantity
     FROM medicines
-    WHERE stockquantity <= 10
+    WHERE stockquantity <= 10 
+      AND status = 'active'
     ORDER BY stockquantity ASC
 ");
 $low_stock_count = $low_stock_query->num_rows;
 
-// Expiring Soon Medicines (within 30 days)
+// Expiring Soon Medicines (within 30 days and active)
 $expiring_query = $conn->query("
     SELECT name, expiredate
     FROM medicines
     WHERE expiredate <= DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+      AND status = 'active'
     ORDER BY expiredate ASC
 ");
 $expiring_count = $expiring_query->num_rows;
@@ -57,50 +59,6 @@ $conn->close();
     <title>Staff Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Additional styles for card colors */
-        .sales-card {
-            background: #d4edda; /* Light green */
-            color: #155724; /* Dark green */
-        }
-        .transactions-card {
-            background: #cce7ff; /* Light blue */
-            color: #004085; /* Dark blue */
-        }
-        .low-stock-card {
-            background: #fff3cd; /* Light orange */
-            color: #856404; /* Dark orange */
-        }
-        .expiring-card {
-            background: #f8d7da; /* Light red */
-            color: #721c24; /* Dark red */
-        }
-        .transaction-card {
-            background: #47d16b; /* Green to stand out */
-            color: white;
-            border: 2px solid #2f7d38;
-        }
-        .transaction-card:hover {
-            background: #3e9b4a;
-        }
-        /* Grid layout: 4 columns, transaction spans all 4 in row 1, four cards in row 2 balanced */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            margin-top: 30px;
-            max-width: 100%; /* Ensure it fits within container */
-        }
-        .transaction-card {
-            grid-column: span 4; /* Span full width in row 1 */
-            grid-row: 1;
-            text-align: center;
-        }
-        /* Four data cards in row 2, each taking 1 column, perfectly balanced */
-        .sales-card, .transactions-card, .low-stock-card, .expiring-card {
-            grid-row: 2;
-        }
-    </style>
 </head>
 <body>
 
@@ -116,13 +74,12 @@ $conn->close();
 <!-- Main -->
 <div class="main-content">
     <header>
-        <a href="logout.php" class="header-btn-back">🚪 Logout</a>
-        <span class="header-title">Staff Dashboard</span>
+        <span class="header-title">JJR MediTrack Dashboard</span>
         <a href="transaction_receipt.php" class="receipt-btn">🧾 Receipt</a>
     </header>
 
     <div class="container">
-        <h1 style="color:#0f8e33;">JJR MediTrack Dashboard</h1>
+        <h1 style="color:#0f8e33;"></h1>
 
         <div class="dashboard-grid">
             <!-- New Transaction Card - Spans full width in row 1 -->
